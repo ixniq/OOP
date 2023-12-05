@@ -52,7 +52,7 @@ public:
             return massiv[indeks];
         } else {
             cerr << "Oshibka: Indeks za predelami diapazona." << endl;
-            return T(); // Vozvrashchaem znachenie po umolchaniyu v sluchae oshibki
+            return T(); 
         }
     }
     int poluchitRazmer() const {
