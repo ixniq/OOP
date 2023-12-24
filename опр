@@ -1,0 +1,117 @@
+#include <iostream>
+#include <opencv2/opencv.hpp>
+#include <opencv2/highgui/highgui.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
+#include "tinyfiledialogs.h"
+
+using namespace cv;
+
+double calculatePSNR(const Mat& original, const Mat& filtered) {
+    Mat s1;
+    absdiff(original, filtered, s1);   // |I1 - I2|
+    s1.convertTo(s1, CV_32F);          // если не float, может произойти переполнение
+
+    Mat squaredDiff;
+    multiply(s1, s1, squaredDiff);     // |I1 - I2|^2
+
+    Scalar mse = mean(squaredDiff);    // среднее значение квадрата ошибки
+    double psnr = 10.0 * log10(255 * 255 / mse[0]);
+    return psnr;
+}
+
+double calculateSSIM(const Mat& original, const Mat& filtered) {
+    const double C1 = 6.5025, C2 = 58.5225;
+    Mat I1, I2;
+    original.convertTo(I1, CV_32F);
+    filtered.convertTo(I2, CV_32F);
+
+    Mat I1I2, I1_2, I2_2;
+    multiply(I1, I2, I1I2);
+    multiply(I1, I1, I1_2);
+    multiply(I2, I2, I2_2);
+
+    Mat mu1, mu2;
+    GaussianBlur(I1, mu1, Size(11, 11), 1.5);
+    GaussianBlur(I2, mu2, Size(11, 11), 1.5);
+
+    Mat mu1_2, mu2_2, mu1_mu2;
+    multiply(mu1, mu1, mu1_2);
+    multiply(mu2, mu2, mu2_2);
+    multiply(mu1, mu2, mu1_mu2);
+
+    Mat sigma1_2, sigma2_2, sigma12;
+    GaussianBlur(I1_2, sigma1_2, Size(11, 11), 1.5);
+    subtract(sigma1_2, mu1_2, sigma1_2);
+
+    GaussianBlur(I2_2, sigma2_2, Size(11, 11), 1.5);
+    subtract(sigma2_2, mu2_2, sigma2_2);
+
+    GaussianBlur(I1I2, sigma12, Size(11, 11), 1.5);
+    subtract(sigma12, mu1_mu2, sigma12);
+
+    Mat ssim_map;
+    divide((2 * mu1_mu2 + C1), (mu1_2 + mu2_2 + C1), ssim_map);
+    divide((2 * sigma12 + C2), (sigma1_2 + sigma2_2 + C2), sigma12);
+    multiply(ssim_map, sigma12, ssim_map);
+
+    Scalar mssim = mean(ssim_map);
+    return (mssim.val[0] + mssim.val[1] + mssim.val[2]) / 3;
+}
+
+int main() {
+    // Используем tinyfiledialogs для выбора файла
+    const char* filePath = tinyfd_openFileDialog("Выберите изображение", "", 0, NULL, "Image Files (*.png;*.jpg;*.jpeg)", 0);
+
+    // Проверяем, был ли выбран файл
+    if (filePath != NULL) {
+        // Загрузка выбранного изображения
+        Mat originalImage = imread(filePath);
+
+        if (originalImage.empty()) {
+            std::cerr << "Не удалось загрузить изображение." << std::endl;
+            return -1;
+        }
+
+        // Применение фильтра Лапласиана
+        Mat laplacian;
+        Laplacian(originalImage, laplacian, CV_16S);
+        convertScaleAbs(laplacian, laplacian);
+
+        // Применение медианного фильтра для выделения малоразмерных деталей из шумов
+        Mat median_filtered;
+        medianBlur(originalImage, median_filtered, 5);
+
+        // Оценка качества с использованием PSNR и SSIM
+        double psnr_laplacian = calculatePSNR(originalImage, laplacian);
+        double psnr_median = calculatePSNR(originalImage, median_filtered);
+
+        double ssim_laplacian = calculateSSIM(originalImage, laplacian);
+        double ssim_median = calculateSSIM(originalImage, median_filtered);
+
+        // Вывод результатов
+        std::cout << "PSNR (Laplacian Filter): " << psnr_laplacian << " dB" << std::endl;
+        std::cout << "PSNR (Median Filter): " << psnr_median << " dB" << std::endl;
+
+        std::cout << "SSIM (Laplacian Filter): " << ssim_laplacian << std::endl;
+        std::cout << "SSIM (Median Filter): " << ssim_median << std::endl;
+
+        // Отображение оригинального, фильтра Лапласиана и медианно отфильтрованного изображений
+        imshow("Original Image", originalImage);
+        imshow("Laplacian Filter", laplacian);
+        imshow("Median Filter", median_filtered);
+
+        // Сохранение изображений
+        imwrite("original_image.jpg", originalImage);
+        imwrite("laplacian_filter.jpg", laplacian);
+        imwrite("median_filter.jpg", median_filtered);
+
+        // Ожидание нажатия клавиши
+        waitKey(0);
+
+        return 0;
+    }
+    else {
+        std::cerr << "Файл не выбран." << std::endl;
+        return -1;
+    }
+}
